@@ -1,0 +1,2413 @@
+package com.example.hospital;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class HospitalAppointmentSystemApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(HospitalAppointmentSystemApplication.class, args);
+	}
+
+}
+package com.example.hospital;
+
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+
+public class PasswordGenerator {
+
+    public static void main(String[] args) {
+
+        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+
+        String encoded = encoder.encode("admin123");
+
+        System.out.println(encoded);
+    }
+}package com.example.hospital.admin;
+
+import com.example.hospital.security.Role;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.persistence.*;
+
+@Entity
+public class Admin {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+
+    @Column(unique = true)
+    private String email;
+
+    @JsonIgnore
+    private String password;
+
+    @Enumerated(EnumType.STRING)
+    private Role role = Role.ADMIN;
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+
+    public Role getRole() {
+        return role;
+    }
+}package com.example.hospital.admin;
+
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/admin")
+public class AdminController {
+
+    private final AdminService adminService;
+
+    public AdminController(AdminService adminService) {
+        this.adminService = adminService;
+    }
+
+    // =========================
+    // ADMIN DASHBOARD
+    // =========================
+    @GetMapping("/stats")
+    public Map<String, Object> stats() {
+
+        return adminService.getDashboardStats();
+    }
+}package com.example.hospital.admin;
+
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.stereotype.Component;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+@Component
+public class AdminDataLoader implements CommandLineRunner {
+
+    private final AdminRepository adminRepository;
+    private final PasswordEncoder passwordEncoder;
+
+    public AdminDataLoader(AdminRepository adminRepository,
+                           PasswordEncoder passwordEncoder) {
+        this.adminRepository = adminRepository;
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    @Override
+    public void run(String... args) {
+
+        if(adminRepository.findByEmail("admin@gmail.com").isEmpty()){
+
+            Admin admin = new Admin();
+            admin.setName("Admin");
+            admin.setEmail("admin@gmail.com");
+            admin.setPassword(passwordEncoder.encode("admin123"));
+
+            adminRepository.save(admin);
+        }
+    }
+}package com.example.hospital.admin;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.Optional;
+
+public interface AdminRepository extends JpaRepository<Admin, Long> {
+
+    Optional<Admin> findByEmail(String email);
+
+}package com.example.hospital.admin;
+
+import com.example.hospital.appointment.AppointmentRepository;
+import com.example.hospital.appointment.AppointmentStatus;
+import com.example.hospital.doctor.DoctorRepository;
+import com.example.hospital.patient.PatientRepository;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+public class AdminService {
+
+    private final PatientRepository patientRepository;
+    private final DoctorRepository doctorRepository;
+    private final AppointmentRepository appointmentRepository;
+
+    public AdminService(PatientRepository patientRepository,
+                        DoctorRepository doctorRepository,
+                        AppointmentRepository appointmentRepository) {
+        this.patientRepository = patientRepository;
+        this.doctorRepository = doctorRepository;
+        this.appointmentRepository = appointmentRepository;
+    }
+
+    public Map<String, Object> getDashboardStats() {
+
+        Map<String, Object> stats = new HashMap<>();
+
+        stats.put("totalPatients", patientRepository.count());
+        stats.put("totalDoctors", doctorRepository.count());
+        stats.put("totalAppointments", appointmentRepository.count());
+
+        stats.put("pendingAppointments",
+                appointmentRepository.countByStatus(AppointmentStatus.PENDING));
+
+        stats.put("approvedAppointments",
+                appointmentRepository.countByStatus(AppointmentStatus.APPROVED));
+
+        stats.put("rejectedAppointments",
+                appointmentRepository.countByStatus(AppointmentStatus.REJECTED));
+
+        return stats;
+    }
+}package com.example.hospital.analytics;
+
+import org.springframework.web.bind.annotation.*;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/admin/analytics")
+public class AdminAnalyticsController {
+
+    private final AdminAnalyticsService service;
+
+    public AdminAnalyticsController(AdminAnalyticsService service) {
+        this.service = service;
+    }
+
+    @GetMapping
+    public Map<String, Long> getAnalytics(){
+
+        Map<String, Long> data = new HashMap<>();
+
+        data.put("totalAppointments", service.totalAppointments());
+        data.put("completedAppointments", service.completedAppointments());
+        data.put("pendingAppointments", service.pendingAppointments());
+        data.put("approvedAppointments", service.approvedAppointments());
+        data.put("rejectedAppointments", service.rejectedAppointments());
+
+        data.put("totalDoctors", service.totalDoctors());
+        data.put("totalPatients", service.totalPatients());
+
+        return data;
+    }
+}package com.example.hospital.analytics;
+
+import com.example.hospital.appointment.AppointmentRepository;
+import com.example.hospital.appointment.AppointmentStatus;
+import com.example.hospital.doctor.DoctorRepository;
+import com.example.hospital.patient.PatientRepository;
+
+import org.springframework.stereotype.Service;
+
+@Service
+public class AdminAnalyticsService {
+
+    private final AppointmentRepository appointmentRepository;
+    private final DoctorRepository doctorRepository;
+    private final PatientRepository patientRepository;
+
+    public AdminAnalyticsService(
+            AppointmentRepository appointmentRepository,
+            DoctorRepository doctorRepository,
+            PatientRepository patientRepository) {
+
+        this.appointmentRepository = appointmentRepository;
+        this.doctorRepository = doctorRepository;
+        this.patientRepository = patientRepository;
+    }
+
+    public long totalAppointments(){
+        return appointmentRepository.count();
+    }
+
+    public long completedAppointments(){
+        return appointmentRepository.countByStatus(AppointmentStatus.COMPLETED);
+    }
+
+    public long pendingAppointments(){
+        return appointmentRepository.countByStatus(AppointmentStatus.PENDING);
+    }
+
+    public long approvedAppointments(){
+        return appointmentRepository.countByStatus(AppointmentStatus.APPROVED);
+    }
+
+    public long rejectedAppointments(){
+        return appointmentRepository.countByStatus(AppointmentStatus.REJECTED);
+    }
+
+    public long totalDoctors(){
+        return doctorRepository.count();
+    }
+
+    public long totalPatients(){
+        return patientRepository.count();
+    }
+}package com.example.hospital.appointment;
+
+import com.example.hospital.doctor.Doctor;
+import com.example.hospital.patient.Patient;
+import jakarta.persistence.*;
+
+import java.time.LocalDate;
+import java.time.LocalTime;
+
+@Entity
+public class Appointment {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private LocalDate date;
+
+    private LocalTime time;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable=false)
+    private AppointmentStatus status;
+
+    @ManyToOne
+    @JoinColumn(name = "patient_id")
+    private Patient patient;
+
+    @ManyToOne
+    @JoinColumn(name = "doctor_id")
+    private Doctor doctor;
+
+    public Appointment() {
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public LocalDate getDate() {
+        return date;
+    }
+
+    public void setDate(LocalDate date) {
+        this.date = date;
+    }
+
+    public LocalTime getTime() {
+        return time;
+    }
+
+    public void setTime(LocalTime time) {
+        this.time = time;
+    }
+
+    public AppointmentStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(AppointmentStatus status) {
+        this.status = status;
+    }
+
+    public Patient getPatient() {
+        return patient;
+    }
+
+    public void setPatient(Patient patient) {
+        this.patient = patient;
+    }
+
+    public Doctor getDoctor() {
+        return doctor;
+    }
+
+    public void setDoctor(Doctor doctor) {
+        this.doctor = doctor;
+    }
+}package com.example.hospital.appointment;
+
+import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/appointments")
+public class AppointmentController {
+
+    private final AppointmentService appointmentService;
+
+    public AppointmentController(AppointmentService appointmentService) {
+        this.appointmentService = appointmentService;
+    }
+	 // =========================
+	 // GET ALL APPOINTMENTS (ADMIN)
+	 // =========================
+	 @GetMapping
+	 public List<Appointment> getAllAppointments() {
+	     return appointmentService.getAllAppointments();
+	 }
+
+    // =========================
+    // BOOK APPOINTMENT
+    // =========================
+    @PostMapping("/book")
+    public Appointment book(@RequestBody AppointmentRequest request) {
+        return appointmentService.bookAppointment(request);
+    }
+
+    // =========================
+    // GET BY DOCTOR
+    // =========================
+    @GetMapping("/doctor/{doctorId}")
+    public List<Appointment> byDoctor(@PathVariable Long doctorId) {
+        return appointmentService.getAppointmentsByDoctor(doctorId);
+    }
+
+    // =========================
+    // GET BY PATIENT
+    // =========================
+    @GetMapping("/patient/{patientId}")
+    public List<Appointment> byPatient(@PathVariable Long patientId) {
+        return appointmentService.getAppointmentsByPatient(patientId);
+    }
+
+    // =========================
+    // UPDATE APPOINTMENT
+    // =========================
+    @PutMapping("/update/{appointmentId}")
+    public Appointment update(@PathVariable Long appointmentId,
+                              @RequestBody AppointmentRequest request) {
+        return appointmentService.updateAppointment(appointmentId, request);
+    }
+
+    // =========================
+    // CANCEL APPOINTMENT (Soft)
+    // =========================
+    @PutMapping("/cancel/{appointmentId}")
+    public Appointment cancel(@PathVariable Long appointmentId) {
+        return appointmentService.cancelAppointment(appointmentId);
+    }
+
+    // =========================
+    // COMPLETE APPOINTMENT
+    // =========================
+    @PutMapping("/complete/{appointmentId}")
+    public Appointment complete(@PathVariable Long appointmentId) {
+        return appointmentService.completeAppointment(appointmentId);
+    }
+ // =========================
+ // FILTER BY STATUS
+ // =========================
+ @GetMapping("/status/{status}")
+ public List<Appointment> byStatus(@PathVariable AppointmentStatus status) {
+     return appointmentService.getByStatus(status);
+ }
+
+ // =========================
+ // FILTER BY DOCTOR + STATUS
+ // =========================
+ @GetMapping("/doctor/{doctorId}/status/{status}")
+ public List<Appointment> byDoctorAndStatus(
+         @PathVariable Long doctorId,
+         @PathVariable AppointmentStatus status) {
+
+     return appointmentService.getByDoctorAndStatus(doctorId, status);
+ }
+
+ // =========================
+ // FILTER BY PATIENT + STATUS
+ // =========================
+ @GetMapping("/patient/{patientId}/status/{status}")
+ public List<Appointment> byPatientAndStatus(
+         @PathVariable Long patientId,
+         @PathVariable AppointmentStatus status) {
+
+     return appointmentService.getByPatientAndStatus(patientId, status);
+ }
+//=========================
+//DOCTOR APPROVE
+//=========================
+@PutMapping("/doctor/{doctorId}/approve/{appointmentId}")
+public Appointment approve(@PathVariable Long doctorId,
+                         @PathVariable Long appointmentId) {
+
+  return appointmentService.approveAppointment(appointmentId, doctorId);
+}
+
+//=========================
+//DOCTOR REJECT
+//=========================
+@PutMapping("/doctor/{doctorId}/reject/{appointmentId}")
+public Appointment reject(@PathVariable Long doctorId,
+                        @PathVariable Long appointmentId) {
+
+  return appointmentService.rejectAppointment(appointmentId, doctorId);
+}
+@GetMapping("/page")
+public Page<Appointment> getAppointmentsPage(Pageable pageable) {
+    return appointmentService.getAppointmentsPage(pageable);
+}
+}package com.example.hospital.appointment;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.List;
+
+public interface AppointmentRepository extends JpaRepository<Appointment, Long> {
+	boolean existsByDoctorId(Long doctorId);
+
+    // =========================
+    // CHECK DOUBLE BOOKING
+    // =========================
+    boolean existsByDoctorIdAndDateAndTime(
+            Long doctorId,
+            LocalDate date,
+            LocalTime time
+    );
+
+    // =========================
+    // GET APPOINTMENTS BY DOCTOR
+    // =========================
+    List<Appointment> findByDoctorId(Long doctorId);
+
+    // =========================
+    // GET APPOINTMENTS BY PATIENT
+    // =========================
+    List<Appointment> findByPatientId(Long patientId);
+
+    // =========================
+    // FILTER BY STATUS
+    // =========================
+    List<Appointment> findByStatus(AppointmentStatus status);
+
+    // =========================
+    // FILTER BY DOCTOR + STATUS
+    // =========================
+    List<Appointment> findByDoctorIdAndStatus(
+            Long doctorId,
+            AppointmentStatus status
+    );
+
+    // =========================
+    // FILTER BY PATIENT + STATUS
+    // =========================
+    List<Appointment> findByPatientIdAndStatus(
+            Long patientId,
+            AppointmentStatus status
+    );
+
+    // =========================
+    // ADMIN DASHBOARD COUNT
+    // =========================
+    long countByStatus(AppointmentStatus status);
+}package com.example.hospital.appointment;
+
+import java.time.LocalDate;
+import java.time.LocalTime;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+
+public class AppointmentRequest {
+
+    private Long patientId;
+    private Long doctorId;
+
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate date;
+
+    @JsonFormat(pattern = "HH:mm:ss")
+    private LocalTime time;
+
+    public Long getPatientId() { return patientId; }
+    public void setPatientId(Long patientId) { this.patientId = patientId; }
+
+    public Long getDoctorId() { return doctorId; }
+    public void setDoctorId(Long doctorId) { this.doctorId = doctorId; }
+
+    public LocalDate getDate() { return date; }
+    public void setDate(LocalDate date) { this.date = date; }
+
+    public LocalTime getTime() { return time; }
+    public void setTime(LocalTime time) { this.time = time; }
+}package com.example.hospital.appointment;
+
+import com.example.hospital.doctor.Doctor;
+import com.example.hospital.doctor.DoctorRepository;
+import com.example.hospital.patient.Patient;
+import com.example.hospital.patient.PatientRepository;
+import com.example.hospital.schedule.Schedule;
+import com.example.hospital.schedule.ScheduleRepository;
+import com.example.hospital.sms.SmsService;
+import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+
+import java.time.DayOfWeek;
+import java.util.Optional;
+import java.util.List;
+
+@Service
+public class AppointmentService {
+
+    private final AppointmentRepository appointmentRepository;
+    private final PatientRepository patientRepository;
+    private final DoctorRepository doctorRepository;
+    private final ScheduleRepository scheduleRepository;
+    private final SmsService smsService;
+
+    public AppointmentService(AppointmentRepository appointmentRepository,
+                              PatientRepository patientRepository,
+                              DoctorRepository doctorRepository,
+                              ScheduleRepository scheduleRepository,
+                              SmsService smsService) {
+        this.appointmentRepository = appointmentRepository;
+        this.patientRepository = patientRepository;
+        this.doctorRepository = doctorRepository;
+        this.scheduleRepository = scheduleRepository;
+        this.smsService = smsService;
+    }
+
+	 // =========================
+	 // GET ALL APPOINTMENTS
+	 // =========================
+	 public List<Appointment> getAllAppointments() {
+	     return appointmentRepository.findAll();
+	 }
+
+    // =========================
+    // BOOK APPOINTMENT
+    // =========================
+    public Appointment bookAppointment(AppointmentRequest request) {
+
+        Patient patient = patientRepository.findById(request.getPatientId())
+                .orElseThrow(() ->
+                        new RuntimeException("Patient not found with id: "
+                                + request.getPatientId()));
+
+        Doctor doctor = doctorRepository.findById(request.getDoctorId())
+                .orElseThrow(() ->
+                        new RuntimeException("Doctor not found with id: "
+                                + request.getDoctorId()));
+
+        // =========================
+        // CHECK DOCTOR SCHEDULE
+        // =========================
+        DayOfWeek day = request.getDate().getDayOfWeek();
+
+        Optional<Schedule> scheduleOpt =
+                scheduleRepository.findByDoctorIdAndDayOfWeek(
+                        request.getDoctorId(),
+                        day
+                );
+
+        if (scheduleOpt.isPresent()) {
+
+            Schedule schedule = scheduleOpt.get();
+
+            if (request.getTime().isBefore(schedule.getStartTime())
+                    || request.getTime().isAfter(schedule.getEndTime())) {
+
+                throw new RuntimeException(
+                        "Appointment time is outside doctor schedule"
+                );
+            }
+        }
+
+        // =========================
+        // CHECK DOUBLE BOOKING
+        // =========================
+        boolean alreadyBooked =
+                appointmentRepository.existsByDoctorIdAndDateAndTime(
+                        request.getDoctorId(),
+                        request.getDate(),
+                        request.getTime()
+                );
+
+        if (alreadyBooked) {
+            throw new RuntimeException("This time slot is already booked for the doctor.");
+        }
+
+        Appointment appointment = new Appointment();
+        appointment.setPatient(patient);
+        appointment.setDoctor(doctor);
+        appointment.setDate(request.getDate());
+        appointment.setTime(request.getTime());
+
+        // Default appointment status
+        appointment.setStatus(AppointmentStatus.PENDING);
+
+        Appointment saved = appointmentRepository.save(appointment);
+
+        String message =
+                "Hello " + patient.getName() +
+                ", your appointment with Dr. " + doctor.getName() +
+                " is booked on " + saved.getDate() +
+                " at " + saved.getTime() +
+                ". Status: PENDING.";
+
+        if (patient.getPhone() != null && !patient.getPhone().isEmpty()) {
+            smsService.sendSms(patient.getPhone(), message);
+        }
+
+        return saved;
+    }
+
+    // =========================
+    // GET APPOINTMENTS BY DOCTOR
+    // =========================
+    public List<Appointment> getAppointmentsByDoctor(Long doctorId) {
+        return appointmentRepository.findByDoctorId(doctorId);
+    }
+
+    // =========================
+    // GET APPOINTMENTS BY PATIENT
+    // =========================
+    public List<Appointment> getAppointmentsByPatient(Long patientId) {
+        return appointmentRepository.findByPatientId(patientId);
+    }
+
+    // =========================
+    // UPDATE APPOINTMENT
+    // =========================
+    public Appointment updateAppointment(Long appointmentId, AppointmentRequest request) {
+
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() ->
+                        new RuntimeException("Appointment not found with id: " + appointmentId));
+
+        boolean alreadyBooked =
+                appointmentRepository.existsByDoctorIdAndDateAndTime(
+                        request.getDoctorId(),
+                        request.getDate(),
+                        request.getTime()
+                );
+
+        if (alreadyBooked) {
+            throw new RuntimeException("This time slot is already booked for the doctor.");
+        }
+
+        appointment.setDate(request.getDate());
+        appointment.setTime(request.getTime());
+
+        return appointmentRepository.save(appointment);
+    }
+
+    // =========================
+    // CANCEL APPOINTMENT
+    // =========================
+    public Appointment cancelAppointment(Long appointmentId) {
+
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() ->
+                        new RuntimeException("Appointment not found"));
+
+        appointment.setStatus(AppointmentStatus.CANCELLED);
+
+        return appointmentRepository.save(appointment);
+    }
+
+    // =========================
+    // COMPLETE APPOINTMENT
+    // =========================
+    public Appointment completeAppointment(Long appointmentId) {
+
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() ->
+                        new RuntimeException("Appointment not found"));
+
+        appointment.setStatus(AppointmentStatus.COMPLETED);
+
+        return appointmentRepository.save(appointment);
+    }
+
+    // =========================
+    // DOCTOR APPROVE APPOINTMENT
+    // =========================
+    public Appointment approveAppointment(Long appointmentId, Long doctorId) {
+
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() -> new RuntimeException("Appointment not found"));
+
+        if (!appointment.getDoctor().getId().equals(doctorId)) {
+            throw new RuntimeException("You can approve only your appointments");
+        }
+
+        appointment.setStatus(AppointmentStatus.APPROVED);
+
+        Appointment saved = appointmentRepository.save(appointment);
+
+        Patient patient = saved.getPatient();
+        Doctor doctor = saved.getDoctor();
+
+        String message =
+                "Hello " + patient.getName() +
+                ", your appointment with Dr. " + doctor.getName() +
+                " on " + saved.getDate() +
+                " at " + saved.getTime() +
+                " has been APPROVED.";
+
+        if (patient.getPhone() != null && !patient.getPhone().isEmpty()) {
+            smsService.sendSms(patient.getPhone(), message);
+        }
+
+        return saved;
+    }
+
+    // =========================
+    // DOCTOR REJECT APPOINTMENT
+    // =========================
+    public Appointment rejectAppointment(Long appointmentId, Long doctorId) {
+
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() -> new RuntimeException("Appointment not found"));
+
+        if (!appointment.getDoctor().getId().equals(doctorId)) {
+            throw new RuntimeException("You can reject only your appointments");
+        }
+
+        appointment.setStatus(AppointmentStatus.REJECTED);
+
+        Appointment saved = appointmentRepository.save(appointment);
+
+        Patient patient = saved.getPatient();
+        Doctor doctor = saved.getDoctor();
+
+        String message =
+                "Hello " + patient.getName() +
+                ", your appointment with Dr. " + doctor.getName() +
+                " on " + saved.getDate() +
+                " at " + saved.getTime() +
+                " has been REJECTED.";
+
+        if (patient.getPhone() != null && !patient.getPhone().isEmpty()) {
+            smsService.sendSms(patient.getPhone(), message);
+        }
+
+        return saved;
+    }
+
+    // =========================
+    // FILTER BY STATUS
+    // =========================
+    public List<Appointment> getByStatus(AppointmentStatus status) {
+        return appointmentRepository.findByStatus(status);
+    }
+
+    public List<Appointment> getByDoctorAndStatus(Long doctorId,
+                                                  AppointmentStatus status) {
+        return appointmentRepository.findByDoctorIdAndStatus(doctorId, status);
+    }
+
+    public List<Appointment> getByPatientAndStatus(Long patientId,
+                                                   AppointmentStatus status) {
+        return appointmentRepository.findByPatientIdAndStatus(patientId, status);
+    }
+
+    public Page<Appointment> getAppointmentsPage(Pageable pageable) {
+        return appointmentRepository.findAll(pageable);
+    }
+
+}package com.example.hospital.appointment;
+
+public enum AppointmentStatus {
+
+    PENDING,
+    APPROVED,
+    REJECTED,
+    CANCELLED,
+    COMPLETED
+}package com.example.hospital.auth;
+
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    private final AuthService authService;
+
+    public AuthController(AuthService authService) {
+        this.authService = authService;
+    }
+
+    @PostMapping("/register")
+    public AuthResponse register(@RequestBody RegisterRequest request) {
+        return authService.register(request);
+    }
+
+    @PostMapping("/login")
+    public AuthResponse login(@RequestBody LoginRequest request) {
+        return authService.login(request);
+    }
+}package com.example.hospital.auth;
+
+public class AuthResponse {
+    private String token;
+
+    public AuthResponse(String token) {
+        this.token = token;
+    }
+
+    public String getToken() {
+        return token;
+    }
+}package com.example.hospital.auth;
+
+import com.example.hospital.patient.*;
+import com.example.hospital.doctor.*;
+import com.example.hospital.security.*;
+import com.example.hospital.admin.*;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+@Service
+public class AuthService {
+
+    private final PatientRepository patientRepository;
+    private final DoctorRepository doctorRepository;
+    private final AdminRepository adminRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
+
+    public AuthService(
+            PatientRepository patientRepository,
+            DoctorRepository doctorRepository,
+            AdminRepository adminRepository,
+            PasswordEncoder passwordEncoder,
+            JwtService jwtService) {
+
+        this.patientRepository = patientRepository;
+        this.doctorRepository = doctorRepository;
+        this.adminRepository = adminRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
+    }
+
+    public AuthResponse register(RegisterRequest request) {
+
+        if (patientRepository.findByEmail(request.getEmail()).isPresent()) {
+            throw new RuntimeException("Email already registered");
+        }
+
+        Patient patient = new Patient();
+        patient.setName(request.getName());
+        patient.setEmail(request.getEmail());
+        patient.setPassword(passwordEncoder.encode(request.getPassword()));
+        patient.setPhone(request.getPhone());
+        patient.setRole(Role.PATIENT);
+
+        patientRepository.save(patient);
+
+        // ✅ UPDATED
+        String token = jwtService.generateToken(
+                patient.getId(),
+                patient.getEmail(),
+                patient.getRole().name()
+        );
+
+        return new AuthResponse(token);
+    }
+
+    public AuthResponse login(LoginRequest request) {
+
+        // 1️⃣ CHECK ADMIN FIRST
+        Admin admin = adminRepository
+                .findByEmail(request.getEmail())
+                .orElse(null);
+
+        if (admin != null) {
+
+            if (!passwordEncoder.matches(request.getPassword(), admin.getPassword())) {
+                throw new RuntimeException("Invalid password");
+            }
+
+            // ✅ UPDATED
+            String token = jwtService.generateToken(
+                    admin.getId(),
+                    admin.getEmail(),
+                    admin.getRole().name()
+            );
+
+            return new AuthResponse(token);
+        }
+
+        // 2️⃣ CHECK DOCTOR
+        Doctor doctor = doctorRepository
+                .findByEmail(request.getEmail())
+                .orElse(null);
+
+        if (doctor != null) {
+
+            if (!passwordEncoder.matches(request.getPassword(), doctor.getPassword())) {
+                throw new RuntimeException("Invalid password");
+            }
+
+            // ✅ UPDATED
+            String token = jwtService.generateToken(
+                    doctor.getId(),
+                    doctor.getEmail(),
+                    doctor.getRole().name()
+            );
+
+            return new AuthResponse(token);
+        }
+
+        // 3️⃣ CHECK PATIENT
+        Patient patient = patientRepository
+                .findByEmail(request.getEmail())
+                .orElse(null);
+
+        if (patient != null) {
+
+            if (!passwordEncoder.matches(request.getPassword(), patient.getPassword())) {
+                throw new RuntimeException("Invalid password");
+            }
+
+            // ✅ UPDATED
+            String token = jwtService.generateToken(
+                    patient.getId(),
+                    patient.getEmail(),
+                    patient.getRole().name()
+            );
+
+            return new AuthResponse(token);
+        }
+
+        throw new RuntimeException("User not found");
+    }
+}package com.example.hospital.auth;
+
+public class LoginRequest {
+
+    private String email;
+    private String password;
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+}package com.example.hospital.auth;
+
+public class RegisterRequest {
+
+    private String name;
+    private String email;
+    private String password;
+    private String phone;
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+    
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+}package com.example.hospital.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration
+public class CorsConfig {
+
+    @Bean
+    public WebMvcConfigurer corsConfigurer() {
+
+        return new WebMvcConfigurer() {
+
+            @Override
+            public void addCorsMappings(CorsRegistry registry) {
+
+                registry.addMapping("/**")
+                        .allowedOrigins("http://localhost:5173")
+                        .allowedMethods("*")
+                        .allowedHeaders("*");
+            }
+
+        };
+    }
+}package com.example.hospital.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+
+@Configuration
+public class PasswordConfig {
+
+    @Bean
+    public BCryptPasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}package com.example.hospital.doctor;
+
+import com.example.hospital.security.Role;
+import jakarta.persistence.*;
+
+@Entity
+public class Doctor {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+
+    private String email;
+
+    private String password;
+
+    private String specialization;
+
+    @Enumerated(EnumType.STRING)
+    private Role role;
+
+    // getters and setters
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+
+    public String getSpecialization() {
+        return specialization;
+    }
+
+    public void setSpecialization(String specialization) {
+        this.specialization = specialization;
+    }
+
+    public Role getRole() {
+        return role;
+    }
+
+    public void setRole(Role role) {
+        this.role = role;
+    }
+}package com.example.hospital.doctor;
+
+import com.example.hospital.appointment.Appointment;
+import com.example.hospital.appointment.AppointmentService;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/doctors")
+public class DoctorController {
+
+    private final DoctorService doctorService;
+    private final AppointmentService appointmentService;
+
+    public DoctorController(DoctorService doctorService,
+                            AppointmentService appointmentService) {
+        this.doctorService = doctorService;
+        this.appointmentService = appointmentService;
+    }
+
+    // =========================
+    // GET ALL DOCTORS
+    // =========================
+    @GetMapping
+    public List<Doctor> getDoctors() {
+        return doctorService.getAllDoctors();
+    }
+
+    // =========================
+    // CREATE DOCTOR
+    // =========================
+    @PostMapping
+    public Doctor createDoctor(@RequestBody Doctor doctor) {
+        return doctorService.saveDoctor(doctor);
+    }
+
+    // =========================
+    // DELETE DOCTOR
+    // =========================
+    @DeleteMapping("/{id}")
+    public void deleteDoctor(@PathVariable Long id) {
+        doctorService.deleteDoctor(id);
+    }
+
+    // =========================
+    // DOCTOR SCHEDULE
+    // =========================
+    @GetMapping("/{id}/schedule")
+    public List<Appointment> getDoctorSchedule(@PathVariable Long id) {
+        return appointmentService.getAppointmentsByDoctor(id);
+    }
+
+    // =========================
+    // SEARCH DOCTORS BY SPECIALIZATION
+    // =========================
+    @GetMapping("/specialization/{specialization}")
+    public List<Doctor> getDoctorsBySpecialization(
+            @PathVariable String specialization) {
+
+        return doctorService.getDoctorsBySpecialization(specialization);
+    }
+    
+
+    // =========================
+    // PAGINATION
+    // =========================
+    @GetMapping("/page")
+    public Page<Doctor> getAllDoctors(Pageable pageable) {
+        return doctorService.getAllDoctors(pageable);
+    }
+    @GetMapping("/search")
+    public Page<Doctor> searchDoctors(
+            @RequestParam(required = false) String specialization,
+            Pageable pageable
+    ) {
+        return doctorService.searchDoctorsWithPagination(
+                specialization,
+                pageable
+        );
+    }
+}package com.example.hospital.doctor;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.Optional;
+import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+
+public interface DoctorRepository extends JpaRepository<Doctor, Long> {
+
+    Optional<Doctor> findByEmail(String email);
+    List<Doctor> findBySpecializationIgnoreCase(String specialization);
+    Page<Doctor> findBySpecializationContainingIgnoreCase(
+            String specialization,
+            Pageable pageable
+    );
+}package com.example.hospital.doctor;
+
+import com.example.hospital.security.Role;
+import com.example.hospital.appointment.AppointmentRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import java.util.List;
+
+@Service
+public class DoctorService {
+
+    private final DoctorRepository doctorRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final AppointmentRepository appointmentRepository;
+
+    public DoctorService(DoctorRepository doctorRepository,
+                         PasswordEncoder passwordEncoder,
+                         AppointmentRepository appointmentRepository) {
+
+        this.doctorRepository = doctorRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.appointmentRepository = appointmentRepository;
+    }
+
+    public List<Doctor> getAllDoctors() {
+        return doctorRepository.findAll();
+    }
+
+    public void deleteDoctor(Long id) {
+
+        if (appointmentRepository.existsByDoctorId(id)) {
+            throw new RuntimeException("Doctor has appointments. Cannot delete.");
+        }
+
+        doctorRepository.deleteById(id);
+    }
+
+    public List<Doctor> getDoctorsBySpecialization(String specialization) {
+        return doctorRepository.findBySpecializationIgnoreCase(specialization);
+    }
+
+    public Doctor saveDoctor(Doctor doctor) {
+
+        if (doctor.getPassword() == null) {
+            throw new RuntimeException("Password cannot be null");
+        }
+
+        doctor.setPassword(passwordEncoder.encode(doctor.getPassword()));
+        doctor.setRole(Role.DOCTOR);
+
+        return doctorRepository.save(doctor);
+    }
+
+    public Page<Doctor> getAllDoctors(Pageable pageable) {
+        return doctorRepository.findAll(pageable);
+    }
+    public Page<Doctor> searchDoctorsWithPagination(
+            String specialization,
+            Pageable pageable
+    ) {
+
+        if (specialization == null || specialization.isEmpty()) {
+            return doctorRepository.findAll(pageable);
+        }
+
+        return doctorRepository
+                .findBySpecializationContainingIgnoreCase(
+                        specialization,
+                        pageable
+                );
+    }
+}package com.example.hospital.exception;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
+import java.util.Map;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<?> handleRuntime(RuntimeException ex) {
+
+        return ResponseEntity.badRequest().body(
+                Map.of(
+                        "timestamp", LocalDateTime.now(),
+                        "error", ex.getMessage()
+                )
+        );
+    }
+}package com.example.hospital.medical;
+
+import jakarta.persistence.*;
+import java.time.LocalDate;
+
+@Entity
+public class MedicalRecord {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private Long patientId;
+
+    private Long doctorId;
+
+    private String fileName;
+
+    private String filePath;
+
+    private LocalDate uploadDate;
+
+    public Long getId() {
+        return id;
+    }
+
+    public Long getPatientId() {
+        return patientId;
+    }
+
+    public void setPatientId(Long patientId) {
+        this.patientId = patientId;
+    }
+
+    public Long getDoctorId() {
+        return doctorId;
+    }
+
+    public void setDoctorId(Long doctorId) {
+        this.doctorId = doctorId;
+    }
+
+    public String getFileName() {
+        return fileName;
+    }
+
+    public void setFileName(String fileName) {
+        this.fileName = fileName;
+    }
+
+    public String getFilePath() {
+        return filePath;
+    }
+
+    public void setFilePath(String filePath) {
+        this.filePath = filePath;
+    }
+
+    public LocalDate getUploadDate() {
+        return uploadDate;
+    }
+
+    public void setUploadDate(LocalDate uploadDate) {
+        this.uploadDate = uploadDate;
+    }
+}package com.example.hospital.medical;
+
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpHeaders;
+
+import java.io.IOException;
+import java.nio.file.*;
+import java.time.LocalDate;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/medical-records")
+public class MedicalRecordController {
+
+    private final MedicalRecordService service;
+
+    public MedicalRecordController(MedicalRecordService service) {
+        this.service = service;
+    }
+
+    // =========================
+    // EXISTING: UPLOAD FILE
+    // =========================
+    @PostMapping("/upload")
+    public MedicalRecord upload(
+            @RequestParam Long patientId,
+            @RequestParam Long doctorId,
+            @RequestParam MultipartFile file) throws IOException {
+
+        String uploadDir = "uploads/";
+        Files.createDirectories(Paths.get(uploadDir));
+
+        String filePath = uploadDir + System.currentTimeMillis() + "_" + file.getOriginalFilename();
+
+        Files.copy(file.getInputStream(), Paths.get(filePath), StandardCopyOption.REPLACE_EXISTING);
+
+        MedicalRecord record = new MedicalRecord();
+        record.setPatientId(patientId);
+        record.setDoctorId(doctorId);
+        record.setFileName(file.getOriginalFilename());
+        record.setFilePath(filePath);
+        record.setUploadDate(LocalDate.now());
+
+        return service.saveRecord(record);
+    }
+
+    // =========================
+    // EXISTING: GET PATIENT RECORDS
+    // =========================
+    @GetMapping("/patient/{patientId}")
+    public List<MedicalRecord> getPatientRecords(@PathVariable Long patientId) {
+        return service.getPatientRecords(patientId);
+    }
+
+    // ============================================================
+    // NEW FEATURE 1: DOWNLOAD MEDICAL RECORD
+    // ============================================================
+    @GetMapping("/download/{id}")
+    public ResponseEntity<Resource> download(@PathVariable Long id) throws IOException {
+
+        MedicalRecord record = service.getById(id);
+
+        Path path = Paths.get(record.getFilePath());
+        Resource resource = new UrlResource(path.toUri());
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + record.getFileName() + "\"")
+                .body(resource);
+    }
+
+    // ============================================================
+    // NEW FEATURE 2: DELETE MEDICAL RECORD
+    // ============================================================
+    @DeleteMapping("/{id}")
+    public void deleteRecord(@PathVariable Long id) {
+        service.deleteRecord(id);
+    }
+
+    // ============================================================
+    // NEW FEATURE 3: ADMIN VIEW ALL RECORDS
+    // ============================================================
+    @GetMapping
+    public List<MedicalRecord> getAllRecords() {
+        return service.getAllRecords();
+    }
+}package com.example.hospital.medical;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.List;
+
+public interface MedicalRecordRepository extends JpaRepository<MedicalRecord, Long> {
+
+    List<MedicalRecord> findByPatientId(Long patientId);
+
+}package com.example.hospital.medical;
+
+import org.springframework.stereotype.Service;
+import java.util.List;
+
+@Service
+public class MedicalRecordService {
+
+    private final MedicalRecordRepository repository;
+
+    public MedicalRecordService(MedicalRecordRepository repository) {
+        this.repository = repository;
+    }
+
+    // =========================
+    // EXISTING: SAVE RECORD
+    // =========================
+    public MedicalRecord saveRecord(MedicalRecord record) {
+        return repository.save(record);
+    }
+
+    // =========================
+    // EXISTING: GET PATIENT RECORDS
+    // =========================
+    public List<MedicalRecord> getPatientRecords(Long patientId) {
+        return repository.findByPatientId(patientId);
+    }
+
+    // ====================================================
+    // NEW FEATURE: GET RECORD BY ID (for download)
+    // ====================================================
+    public MedicalRecord getById(Long id) {
+        return repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Medical record not found"));
+    }
+
+    // ====================================================
+    // NEW FEATURE: DELETE RECORD
+    // ====================================================
+    public void deleteRecord(Long id) {
+        repository.deleteById(id);
+    }
+
+    // ====================================================
+    // NEW FEATURE: ADMIN GET ALL RECORDS
+    // ====================================================
+    public List<MedicalRecord> getAllRecords() {
+        return repository.findAll();
+    }
+}package com.example.hospital.patient;
+
+import com.example.hospital.security.Role;
+import jakarta.persistence.*;
+
+@Entity
+public class Patient {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+
+    @Column(unique = true)
+    private String email;
+
+    private String password;
+
+    @Enumerated(EnumType.STRING)
+    private Role role;
+    
+    private String phone;
+
+    // Getters & Setters
+    public Long getId() { return id; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+
+    public Role getRole() { return role; }
+    public void setRole(Role role) { this.role = role; }
+    
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+}package com.example.hospital.patient;
+
+import com.example.hospital.appointment.Appointment;
+import com.example.hospital.appointment.AppointmentService;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/patients")
+public class PatientController {
+
+    private final PatientService patientService;
+    private final AppointmentService appointmentService;
+
+    public PatientController(PatientService patientService,
+                             AppointmentService appointmentService) {
+        this.patientService = patientService;
+        this.appointmentService = appointmentService;
+    }
+
+    // =========================
+    // GET ALL PATIENTS
+    // =========================
+    @GetMapping
+    public List<Patient> getAllPatients() {
+        return patientService.getAllPatients();
+    }
+
+    // =========================
+    // PATIENT APPOINTMENT HISTORY
+    // =========================
+    @GetMapping("/{id}/history")
+    public List<Appointment> getPatientHistory(@PathVariable Long id) {
+        return appointmentService.getAppointmentsByPatient(id);
+    }
+    @GetMapping("/page")
+    public Page<Patient> getPatientsPage(Pageable pageable) {
+        return patientService.getPatientsPage(pageable);
+    }
+}package com.example.hospital.patient;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.Optional;
+
+public interface PatientRepository extends JpaRepository<Patient, Long> {
+    Optional<Patient> findByEmail(String email);
+}package com.example.hospital.patient;
+
+import org.springframework.stereotype.Service;
+import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+
+@Service
+public class PatientService {
+
+    private final PatientRepository patientRepository;
+
+    public PatientService(PatientRepository patientRepository) {
+        this.patientRepository = patientRepository;
+    }
+
+    public List<Patient> getAllPatients() {
+        return patientRepository.findAll();
+    }
+
+    public Patient savePatient(Patient patient) {
+        return patientRepository.save(patient);
+    }
+    public Page<Patient> getPatientsPage(Pageable pageable) {
+        return patientRepository.findAll(pageable);
+    }
+}package com.example.hospital.review;
+
+import jakarta.persistence.*;
+import java.time.LocalDate;
+
+@Entity
+public class DoctorReview {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private Long doctorId;
+
+    private Long patientId;
+
+    private int rating;
+
+    private String comment;
+
+    private LocalDate date;
+
+    public Long getId() {
+        return id;
+    }
+
+    public Long getDoctorId() {
+        return doctorId;
+    }
+
+    public void setDoctorId(Long doctorId) {
+        this.doctorId = doctorId;
+    }
+
+    public Long getPatientId() {
+        return patientId;
+    }
+
+    public void setPatientId(Long patientId) {
+        this.patientId = patientId;
+    }
+
+    public int getRating() {
+        return rating;
+    }
+
+    public void setRating(int rating) {
+        this.rating = rating;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public void setComment(String comment) {
+        this.comment = comment;
+    }
+
+    public LocalDate getDate() {
+        return date;
+    }
+
+    public void setDate(LocalDate date) {
+        this.date = date;
+    }
+}package com.example.hospital.review;
+
+import org.springframework.web.bind.annotation.*;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/reviews")
+public class DoctorReviewController {
+
+    private final DoctorReviewService service;
+
+    public DoctorReviewController(DoctorReviewService service) {
+        this.service = service;
+    }
+
+    @PostMapping
+    public DoctorReview addReview(@RequestBody DoctorReview review) {
+        return service.addReview(review);
+    }
+
+    @GetMapping("/doctor/{doctorId}")
+    public List<DoctorReview> getDoctorReviews(@PathVariable Long doctorId) {
+        return service.getDoctorReviews(doctorId);
+    }
+    @GetMapping("/top-doctors")
+    public List<DoctorReviewStatsDTO> getTopDoctors(){
+        return service.getTopDoctors();
+    }
+}package com.example.hospital.review;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.List;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.domain.Pageable;
+public interface DoctorReviewRepository extends JpaRepository<DoctorReview, Long> {
+
+    List<DoctorReview> findByDoctorId(Long doctorId);
+
+    @Query("""
+    		SELECT new com.example.hospital.review.DoctorReviewStatsDTO(
+    		d.id,
+    		d.name,
+    		d.specialization,
+    		AVG(r.rating),
+    		COUNT(r)
+    		)
+    		FROM DoctorReview r, Doctor d
+    		WHERE r.doctorId = d.id
+    		GROUP BY d.id, d.name, d.specialization
+    		ORDER BY COUNT(r) DESC
+    		""")
+    		List<DoctorReviewStatsDTO> findTopDoctors(Pageable pageable);
+
+}package com.example.hospital.review;
+
+import org.springframework.stereotype.Service;
+import org.springframework.data.domain.PageRequest;
+import java.time.LocalDate;
+import java.util.List;
+
+@Service
+public class DoctorReviewService {
+
+    private final DoctorReviewRepository repository;
+
+    public DoctorReviewService(DoctorReviewRepository repository) {
+        this.repository = repository;
+    }
+
+    public DoctorReview addReview(DoctorReview review) {
+        review.setDate(LocalDate.now());
+        return repository.save(review);
+    }
+
+    public List<DoctorReview> getDoctorReviews(Long doctorId) {
+        return repository.findByDoctorId(doctorId);
+    }
+
+    public List<DoctorReviewStatsDTO> getTopDoctors(){
+        return repository.findTopDoctors(PageRequest.of(0,6));
+    }
+}package com.example.hospital.review;
+
+public class DoctorReviewStatsDTO {
+
+    private Long doctorId;
+    private String doctorName;
+    private String specialization;
+    private Double avgRating;
+    private Long totalReviews;
+
+    public DoctorReviewStatsDTO(Long doctorId,
+                                String doctorName,
+                                String specialization,
+                                Double avgRating,
+                                Long totalReviews) {
+        this.doctorId = doctorId;
+        this.doctorName = doctorName;
+        this.specialization = specialization;
+        this.avgRating = avgRating;
+        this.totalReviews = totalReviews;
+    }
+
+    public Long getDoctorId() { return doctorId; }
+    public String getDoctorName() { return doctorName; }
+    public String getSpecialization() { return specialization; }
+    public Double getAvgRating() { return avgRating; }
+    public Long getTotalReviews() { return totalReviews; }
+}
+package com.example.hospital.schedule;
+
+import jakarta.persistence.*;
+import java.time.LocalTime;
+
+@Entity
+public class DoctorSchedule {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private Long doctorId;
+
+    private String dayOfWeek;
+
+    private LocalTime startTime;
+
+    private LocalTime endTime;
+
+    private int slotDuration;
+
+    public Long getId() {
+        return id;
+    }
+
+    public Long getDoctorId() {
+        return doctorId;
+    }
+
+    public void setDoctorId(Long doctorId) {
+        this.doctorId = doctorId;
+    }
+
+    public String getDayOfWeek() {
+        return dayOfWeek;
+    }
+
+    public void setDayOfWeek(String dayOfWeek) {
+        this.dayOfWeek = dayOfWeek;
+    }
+
+    public LocalTime getStartTime() {
+        return startTime;
+    }
+
+    public void setStartTime(LocalTime startTime) {
+        this.startTime = startTime;
+    }
+
+    public LocalTime getEndTime() {
+        return endTime;
+    }
+
+    public void setEndTime(LocalTime endTime) {
+        this.endTime = endTime;
+    }
+
+    public int getSlotDuration() {
+        return slotDuration;
+    }
+
+    public void setSlotDuration(int slotDuration) {
+        this.slotDuration = slotDuration;
+    }
+}package com.example.hospital.schedule;
+
+import org.springframework.web.bind.annotation.*;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/schedule")
+@CrossOrigin(origins = "*")
+public class DoctorScheduleController {
+
+    private final DoctorScheduleService service;
+
+    public DoctorScheduleController(DoctorScheduleService service) {
+        this.service = service;
+    }
+
+    // Add schedule
+    @PostMapping("/add")
+    public DoctorSchedule addSchedule(@RequestBody DoctorSchedule schedule) {
+        return service.addSchedule(schedule);
+    }
+
+    // Get schedules of doctor
+    @GetMapping("/doctor/{doctorId}")
+    public List<DoctorSchedule> getSchedule(@PathVariable Long doctorId) {
+        return service.getDoctorSchedule(doctorId);
+    }
+
+    // Update schedule
+    @PutMapping("/{id}")
+    public DoctorSchedule updateSchedule(
+            @PathVariable Long id,
+            @RequestBody DoctorSchedule schedule) {
+
+        return service.updateSchedule(id, schedule);
+    }
+
+    // Delete schedule
+    @DeleteMapping("/{id}")
+    public void deleteSchedule(@PathVariable Long id) {
+        service.deleteSchedule(id);
+    }
+}package com.example.hospital.schedule;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.List;
+
+public interface DoctorScheduleRepository extends JpaRepository<DoctorSchedule, Long> {
+
+    List<DoctorSchedule> findByDoctorId(Long doctorId);
+
+}package com.example.hospital.schedule;
+
+import org.springframework.stereotype.Service;
+import java.util.List;
+
+@Service
+public class DoctorScheduleService {
+
+    private final DoctorScheduleRepository repository;
+
+    public DoctorScheduleService(DoctorScheduleRepository repository) {
+        this.repository = repository;
+    }
+
+    // ADD schedule
+    public DoctorSchedule addSchedule(DoctorSchedule schedule) {
+        return repository.save(schedule);
+    }
+
+    // GET schedules for doctor
+    public List<DoctorSchedule> getDoctorSchedule(Long doctorId) {
+        return repository.findByDoctorId(doctorId);
+    }
+
+    // UPDATE schedule
+    public DoctorSchedule updateSchedule(Long id, DoctorSchedule schedule) {
+
+        DoctorSchedule existing = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Schedule not found"));
+
+        existing.setDayOfWeek(schedule.getDayOfWeek());
+        existing.setStartTime(schedule.getStartTime());
+        existing.setEndTime(schedule.getEndTime());
+        existing.setSlotDuration(schedule.getSlotDuration());
+
+        return repository.save(existing);
+    }
+
+    // DELETE schedule
+    public void deleteSchedule(Long id) {
+
+        if (!repository.existsById(id)) {
+            throw new RuntimeException("Schedule not found");
+        }
+
+        repository.deleteById(id);
+    }
+}package com.example.hospital.schedule;
+
+import jakarta.persistence.*;
+import java.time.DayOfWeek;
+import java.time.LocalTime;
+
+@Entity
+public class Schedule {
+
+ @Id
+ @GeneratedValue(strategy = GenerationType.IDENTITY)
+ private Long id;
+
+ private Long doctorId;
+
+ @Enumerated(EnumType.STRING)
+ private DayOfWeek dayOfWeek;
+
+ private LocalTime startTime;
+
+ private LocalTime endTime;
+
+ private Integer slotDuration;
+
+ public Long getId() {
+  return id;
+ }
+
+ public Long getDoctorId() {
+  return doctorId;
+ }
+
+ public void setDoctorId(Long doctorId) {
+  this.doctorId = doctorId;
+ }
+
+ public DayOfWeek getDayOfWeek() {
+  return dayOfWeek;
+ }
+
+ public void setDayOfWeek(DayOfWeek dayOfWeek) {
+  this.dayOfWeek = dayOfWeek;
+ }
+
+ public LocalTime getStartTime() {
+  return startTime;
+ }
+
+ public void setStartTime(LocalTime startTime) {
+  this.startTime = startTime;
+ }
+
+ public LocalTime getEndTime() {
+  return endTime;
+ }
+
+ public void setEndTime(LocalTime endTime) {
+  this.endTime = endTime;
+ }
+
+ public Integer getSlotDuration() {
+  return slotDuration;
+ }
+
+ public void setSlotDuration(Integer slotDuration) {
+  this.slotDuration = slotDuration;
+ }
+
+}package com.example.hospital.schedule;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.time.DayOfWeek;
+import java.util.Optional;
+
+public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
+
+ Optional<Schedule> findByDoctorIdAndDayOfWeek(Long doctorId, DayOfWeek dayOfWeek);
+
+}package com.example.hospital.security;
+
+import com.example.hospital.patient.Patient;
+import com.example.hospital.patient.PatientRepository;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.*;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class CustomUserDetailsService implements UserDetailsService {
+
+    private final PatientRepository patientRepository;
+
+    // ✅ MANUAL CONSTRUCTOR
+    public CustomUserDetailsService(PatientRepository patientRepository) {
+        this.patientRepository = patientRepository;
+    }
+
+    @Override
+    public UserDetails loadUserByUsername(String email)
+            throws UsernameNotFoundException {
+
+        Patient patient = patientRepository.findByEmail(email)
+                .orElseThrow(() ->
+                        new UsernameNotFoundException("User not found"));
+
+        return new User(
+                patient.getEmail(),
+                patient.getPassword(),
+                List.of(new SimpleGrantedAuthority("ROLE_" + patient.getRole().name()))
+        );
+    }
+}package com.example.hospital.security;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+
+import java.io.IOException;
+import java.util.List;
+
+@Component
+public class JwtFilter extends OncePerRequestFilter {
+
+    private final JwtService jwtService;
+
+    public JwtFilter(JwtService jwtService) {
+        this.jwtService = jwtService;
+    }
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+
+        String path = request.getServletPath();
+
+        return path.startsWith("/api/auth/")
+                || path.startsWith("/api/medical-records/");
+    }
+
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain)
+            throws ServletException, IOException {
+
+        String authHeader = request.getHeader("Authorization");
+
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        String token = authHeader.substring(7);
+
+        if (!jwtService.isTokenValid(token)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        String email = jwtService.extractEmail(token);
+        String role = jwtService.extractRole(token);
+
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(
+                        email,
+                        null,
+                        List.of(new SimpleGrantedAuthority("ROLE_" + role))
+                );
+
+        authentication.setDetails(
+                new WebAuthenticationDetailsSource().buildDetails(request)
+        );
+
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        filterChain.doFilter(request, response);
+    }
+}package com.example.hospital.security;
+
+import io.jsonwebtoken.*;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.stereotype.Service;
+
+import java.security.Key;
+import java.util.Date;
+
+@Service
+public class JwtService {
+
+    private final String SECRET = "mysecretkeymysecretkeymysecretkey12345";
+    private final Key key = Keys.hmacShaKeyFor(SECRET.getBytes());
+
+    // Generate JWT Token
+    public String generateToken(Long id, String email, String role) {
+
+        return Jwts.builder()
+                .setSubject(email)
+                .claim("id", id)
+                .claim("role", role)
+                .setIssuedAt(new Date())
+                .setExpiration(
+                        new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 24)
+                )
+                .signWith(key)
+                .compact();
+    }
+
+    // Validate Token
+    public boolean isTokenValid(String token) {
+        try {
+            Jwts.parserBuilder()
+                    .setSigningKey(key)
+                    .build()
+                    .parseClaimsJws(token);
+
+            return true;
+
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // Extract Email
+    public String extractEmail(String token) {
+
+        return Jwts.parserBuilder()
+                .setSigningKey(key)
+                .build()
+                .parseClaimsJws(token)
+                .getBody()
+                .getSubject();
+    }
+
+    // Extract Role
+    public String extractRole(String token) {
+
+        return (String) Jwts.parserBuilder()
+                .setSigningKey(key)
+                .build()
+                .parseClaimsJws(token)
+                .getBody()
+                .get("role");
+    }
+
+    // Extract User ID
+    public Long extractId(String token) {
+
+        return ((Number) Jwts.parserBuilder()
+                .setSigningKey(key)
+                .build()
+                .parseClaimsJws(token)
+                .getBody()
+                .get("id")).longValue();
+    }
+}package com.example.hospital.security;
+
+public enum Role {
+    ADMIN,
+    DOCTOR,
+    PATIENT
+}package com.example.hospital.security;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+@Configuration
+public class SecurityConfig {
+
+    private final JwtFilter jwtFilter;
+
+    public SecurityConfig(JwtFilter jwtFilter) {
+        this.jwtFilter = jwtFilter;
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+
+        http
+            .csrf(csrf -> csrf.disable())
+
+            .sessionManagement(session ->
+                    session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            )
+
+            .authorizeHttpRequests(auth -> auth
+
+                    // ==============================
+                    // PUBLIC APIs
+                    // ==============================
+                    .requestMatchers("/api/auth/**").permitAll()
+                    .requestMatchers("/api/schedule/**").permitAll()
+                    .requestMatchers("/api/medical-records/**").permitAll()
+
+                    // ==============================
+                    // NEW FEATURES
+                    // ==============================
+
+                    // Doctor Reviews
+                    .requestMatchers("/api/reviews/**")
+                    .hasAnyRole("ADMIN","DOCTOR","PATIENT")
+
+                    // Admin Analytics
+                    .requestMatchers("/api/admin/analytics/**")
+                    .hasRole("ADMIN")
+
+                    // ==============================
+                    // EXISTING RULES
+                    // ==============================
+
+                    // Admin APIs
+                    .requestMatchers("/api/admin/**")
+                    .hasRole("ADMIN")
+
+                    // Doctors READ
+                    .requestMatchers(HttpMethod.GET, "/api/doctors/**")
+                    .hasAnyRole("ADMIN","DOCTOR","PATIENT")
+
+                    // Doctors CREATE / DELETE
+                    .requestMatchers(HttpMethod.POST, "/api/doctors/**")
+                    .hasRole("ADMIN")
+
+                    .requestMatchers(HttpMethod.DELETE, "/api/doctors/**")
+                    .hasRole("ADMIN")
+
+                    // Patients
+                    .requestMatchers("/api/patients/**")
+                    .hasAnyRole("ADMIN","PATIENT")
+
+                    // Doctor appointments
+                    .requestMatchers("/api/appointments/doctor/**")
+                    .hasRole("DOCTOR")
+
+                    // Appointments
+                    .requestMatchers("/api/appointments")
+                    .hasAnyRole("ADMIN","DOCTOR","PATIENT")
+
+                    .requestMatchers("/api/appointments/**")
+                    .hasAnyRole("ADMIN","DOCTOR","PATIENT")
+
+                    // ==============================
+                    // LAST RULE (MUST BE LAST)
+                    // ==============================
+                    .anyRequest().authenticated()
+            )
+
+            .addFilterBefore(jwtFilter,
+                    UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
+    }
+}package com.example.hospital.sms;
+
+import com.twilio.Twilio;
+import com.twilio.rest.api.v2010.account.Message;
+import com.twilio.type.PhoneNumber;
+import org.springframework.stereotype.Service;
+
+@Service
+public class SmsService {
+
+    private static final String ACCOUNT_SID = "ACae2dbad532380c269e10fc2f275d8939";
+    private static final String AUTH_TOKEN = "40d33c82b4dd1ed42fb98a0305830201";
+    private static final String FROM_PHONE = "+15012872843"; // Twilio number
+
+    public SmsService() {
+        Twilio.init(ACCOUNT_SID, AUTH_TOKEN);
+    }
+
+    public void sendSms(String to, String text) {
+    	if (!to.startsWith("+")) {
+            to = "+91" + to;
+        }
+
+        Message.creator(
+                new PhoneNumber(to),
+                new PhoneNumber(FROM_PHONE),
+                text
+        ).create();
+    }
+}
