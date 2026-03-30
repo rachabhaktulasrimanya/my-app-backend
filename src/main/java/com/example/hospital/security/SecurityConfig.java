@@ -21,6 +21,14 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 
         http
+        .cors(cors -> cors.configurationSource(request -> {
+            org.springframework.web.cors.CorsConfiguration config = new org.springframework.web.cors.CorsConfiguration();
+            config.setAllowedOrigins(java.util.Arrays.asList("http://localhost:5175")); // Your Vite port
+            config.setAllowedMethods(java.util.Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+            config.setAllowedHeaders(java.util.Arrays.asList("*"));
+            config.setAllowCredentials(true);
+            return config;
+        }))
             .csrf(csrf -> csrf.disable())
 
             .sessionManagement(session ->
