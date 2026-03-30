@@ -23,7 +23,7 @@ public class SecurityConfig {
         http
         .cors(cors -> cors.configurationSource(request -> {
             org.springframework.web.cors.CorsConfiguration config = new org.springframework.web.cors.CorsConfiguration();
-            config.setAllowedOrigins(java.util.Arrays.asList("http://localhost:5175","https://my-app-frontend-f93wf3uol-rachabhaktulasrimanyas-projects.vercel.app")); // Your Vite port
+            config.setAllowedOrigins(java.util.Arrays.asList("http://localhost:5175","https://my-app-frontend-jet.vercel.app")); // Your Vite port
             config.setAllowedMethods(java.util.Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
             config.setAllowedHeaders(java.util.Arrays.asList("*"));
             config.setAllowCredentials(true);
