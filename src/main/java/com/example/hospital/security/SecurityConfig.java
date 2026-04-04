@@ -23,8 +23,10 @@ public class SecurityConfig {
         http
         .cors(cors -> cors.configurationSource(request -> {
             org.springframework.web.cors.CorsConfiguration config = new org.springframework.web.cors.CorsConfiguration();
-            // Use setAllowedOriginPatterns instead of setAllowedOrigins for better compatibility
-            config.setAllowedOriginPatterns(java.util.Arrays.asList("*")); 
+            
+            // FIX: You must specify the EXACT Vercel URL when using AllowCredentials(true)
+            config.setAllowedOrigins(java.util.Arrays.asList("https://my-app-frontend-jet.vercel.app")); 
+            
             config.setAllowedMethods(java.util.Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
             config.setAllowedHeaders(java.util.Arrays.asList("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"));
             config.setAllowCredentials(true);
