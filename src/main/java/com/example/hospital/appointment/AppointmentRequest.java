@@ -10,10 +10,10 @@ public class AppointmentRequest {
     private Long patientId;
     private Long doctorId;
 
-    @JsonFormat(pattern = "yyyy-MM-dd")
+    @JsonFormat(pattern = "MM/dd/yyyy")
     private LocalDate date;
 
-    @JsonFormat(pattern = "HH:mm:ss")
+    @JsonFormat(pattern = "HH:mm a")
     private LocalTime time;
 
     public Long getPatientId() { return patientId; }
